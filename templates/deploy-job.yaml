@@ -1,0 +1,114 @@
+{{- $sources := include "spike.workerSourceFiles" . }}
+{{- $deployId := include "spike.deployId" . }}
+{{- $vars := set (include "spike.workerVars" . | fromJson) "DEPLOY_ID" $deployId | toJson }}
+# Builds the worker and writes the deployment into the bucket. celld loads it from there: a running node takes a
+# new deployment in 30 seconds, and a new node waits for the first one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "spike.name" . }}-deploy-{{ $deployId }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+    app.kubernetes.io/component: deploy
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "spike.selectorLabels" (dict "Release" .Release "component" "deploy") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          {{- toYaml .Values.nodeAffinity | nindent 10 }}
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        {{- include "spike.gatewayContainer" (dict "root" . "proxies" false) | nindent 8 }}
+        # The celld image has no Node.js, and the deploy needs both, so copy the binary into the Node.js container.
+        - name: celld-binary
+          image: {{ .Values.images.celld }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["cp", "/usr/local/bin/celld", "/tools/celld"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: deploy
+          image: {{ .Values.images.node }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["bash", "/scripts/deploy-worker.sh"]
+          env:
+            - name: SOURCE_DIR
+              value: /source
+            - name: WORK_DIR
+              value: /work/build
+            - name: HOME
+              value: /work/home
+            - name: CELLD_BIN
+              value: /tools/celld
+            - name: CELLD_BUCKET
+              value: {{ include "spike.bucketUrl" . | quote }}
+            - name: S3_ENDPOINT
+              value: {{ printf "http://%s" (include "spike.s3ShimListen" .) | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.bucket.region | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              value: shim
+            - name: AWS_SECRET_ACCESS_KEY
+              value: shim
+            - name: WORKER_VARS_JSON
+              value: {{ $vars | quote }}
+          resources:
+            {{- toYaml .Values.deploy.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          volumeMounts:
+            - name: source
+              mountPath: /source
+              readOnly: true
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tools
+              mountPath: /tools
+            - name: work
+              mountPath: /work
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "spike.gatewayVolume" . | nindent 8 }}
+        - name: source
+          configMap:
+            name: {{ include "spike.name" . }}-worker-source
+            items:
+              {{- range $path, $_ := $sources | fromYaml }}
+              - key: {{ include "spike.sourceKey" $path }}
+                path: {{ $path }}
+              {{- end }}
+        - name: scripts
+          configMap:
+            name: {{ include "spike.name" . }}-scripts
+        - name: tools
+          emptyDir: {}
+        - name: work
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

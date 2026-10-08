@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature agents</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Cpath d='M9 11h14M9 16h9M9 21h12' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f4f2ec; --surface: #fffdf8; --surface-2: #ebe8df; --border: #d6d2c4;
+    --text: #1d2433; --dim: #5d6577; --accent: #0f766e; --accent-ink: #ffffff; --accent-soft: #d9ece8;
+    --ok: #166534; --warn: #a15c07; --danger: #b42318; --code-bg: #f0ede4;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --surface: #1a2028; --surface-2: #222a34; --border: #2f3a47;
+      --text: #e6e9ee; --dim: #98a2b3; --accent: #5eead4; --accent-ink: #06302c; --accent-soft: #12353a;
+      --ok: #6ce9a6; --warn: #fdb022; --danger: #f97066; --code-bg: #10151b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 0.35rem 0.75rem; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { cursor: not-allowed; opacity: 0.55; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.danger { color: var(--danger); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input, textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.55rem; width: 100%; }
+  code, pre { font-family: var(--mono); font-size: 0.86em; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.75rem; margin: 0.4rem 0; overflow: auto; max-height: 22rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  code { background: var(--code-bg); border-radius: 4px; padding: 0.05em 0.3em; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  a { color: var(--accent); }
+
+  .app { display: grid; grid-template-columns: 290px minmax(0, 1fr); height: 100dvh; }
+  .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--surface-2); }
+  .side header { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1rem 0.6rem; }
+  .side h1 { font-size: 1rem; margin: 0; letter-spacing: 0.02em; }
+  #feature-list { list-style: none; margin: 0; padding: 0 0.5rem; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
+  #feature-list a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.1rem 0.5rem; padding: 0.55rem 0.6rem; border-radius: 8px; text-decoration: none; color: inherit; border: 1px solid transparent; }
+  #feature-list a:hover { background: var(--surface); }
+  #feature-list a.active { background: var(--surface); border-color: var(--border); }
+  .fname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fmeta { grid-column: 1 / -1; color: var(--dim); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side .empty { color: var(--dim); padding: 0.5rem 0.6rem; font-size: 0.9rem; }
+  #open-form { display: flex; gap: 0.4rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+
+  .pill { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid currentColor; border-radius: 999px; padding: 0 0.5rem; font-size: 0.74rem; font-weight: 600; line-height: 1.5; white-space: nowrap; color: var(--dim); }
+  .pill.s-running { color: var(--accent); }
+  .pill.s-accepted { color: var(--ok); }
+  .pill.s-needs-attention, .pill.s-blocked { color: var(--warn); }
+  .pill.s-failed, .pill.s-aborted { color: var(--danger); }
+  .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; display: inline-block; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: no-preference) {
+    .s-running .dot, .live .dot, .tab .dot { animation: pulse 1.4s ease-in-out infinite; }
+  }
+
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #welcome { margin: auto; color: var(--dim); text-align: center; padding: 2rem; max-width: 34rem; }
+  #feature { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #feature[hidden], #welcome[hidden] { display: none; }
+  .head { padding: 0.8rem 1.25rem 0.5rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .head-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .head h2 { font-size: 1.15rem; margin: 0; }
+  .head .facts { color: var(--dim); font-size: 0.85rem; }
+  .head .spacer { flex: 1; }
+  .task { color: var(--dim); font-size: 0.88rem; margin: 0.3rem 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .banner { margin: 0.5rem 0 0; padding: 0.45rem 0.7rem; border: 1px solid var(--warn); color: var(--warn); border-radius: 6px; font-size: 0.88rem; }
+  .tabs { display: flex; gap: 0.15rem; padding: 0.4rem 1.25rem 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 0.4rem 0.7rem; color: var(--dim); display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+  .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab.none { opacity: 0.5; }
+  .tab .dot { color: var(--accent); }
+
+  .panel { flex: 1; overflow: auto; padding: 1rem 1.25rem 1.5rem; }
+  .chat { display: flex; flex-direction: column; gap: 0.8rem; max-width: 62rem; margin: 0 auto; }
+  .at { font-size: 0.76rem; color: var(--dim); }
+  summary > .at { margin-left: auto; }
+  .who { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.78rem; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.2rem; }
+  .who .at { font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .live > .who { color: var(--accent); }
+  .msg.user { align-self: flex-end; max-width: 46rem; }
+  .msg.user .who { justify-content: flex-end; }
+  .msg.user .bubble { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px 12px 2px 12px; padding: 0.5rem 0.8rem; }
+  .msg.user.pending .bubble { border-style: dashed; opacity: 0.75; }
+  .msg.agent { align-self: stretch; }
+  .msg.agent .text { background: var(--surface); border: 1px solid var(--border); border-radius: 2px 12px 12px 12px; padding: 0.55rem 0.85rem; }
+  details.pipeline, details.thinking, details.tool { border: 1px dashed var(--border); border-radius: 8px; background: transparent; }
+  details.tool { border-style: solid; background: var(--surface); margin-top: 0.35rem; }
+  details > summary { cursor: pointer; padding: 0.35rem 0.7rem; display: flex; align-items: baseline; gap: 0.55rem; color: var(--dim); font-size: 0.86rem; list-style: none; }
+  details > summary::before { content: "▸"; font-size: 0.75em; }
+  details[open] > summary::before { content: "▾"; }
+  details > summary::-webkit-details-marker { display: none; }
+  details .body { padding: 0 0.8rem 0.6rem; font-size: 0.92rem; }
+  details.tool > pre { margin: 0 0.6rem 0.6rem; }
+  .tag { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; }
+  .tname { font-family: var(--mono); font-weight: 700; color: var(--text); }
+  .ttitle { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st { font-size: 0.74rem; font-weight: 600; }
+  details.tool.done .st { color: var(--ok); }
+  details.tool.failed .st, .error { color: var(--danger); }
+  details.tool.running .st { color: var(--accent); }
+  .note { align-self: center; color: var(--dim); font-size: 0.85rem; }
+  .live { border-left: 3px solid var(--accent); padding-left: 0.8rem; }
+  .text > :first-child, .bubble > :first-child, .body > :first-child, .doc > :first-child { margin-top: 0; }
+  .text > :last-child, .bubble > :last-child, .body > :last-child, .doc > :last-child { margin-bottom: 0; }
+  .text p, .bubble p, .body p, .doc p { margin: 0.45rem 0; }
+  .text ul, .bubble ul, .body ul, .doc ul { margin: 0.4rem 0; padding-left: 1.3rem; }
+  .md-h { font-size: 1rem; margin: 0.8rem 0 0.3rem; }
+  .more-btn { align-self: center; }
+
+  .facts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.6rem; max-width: 62rem; margin: 0 auto 1.2rem; }
+  .fact { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; min-width: 0; }
+  .fact b { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+  .fact span { overflow-wrap: anywhere; font-size: 0.92rem; }
+  .events { list-style: none; padding: 0; margin: 0 auto; max-width: 62rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .events li { display: grid; grid-template-columns: 4.6rem 6.2rem minmax(0, 1fr); gap: 0.6rem; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.92rem; }
+  .events li:nth-child(odd) { background: var(--surface); }
+  .events time { color: var(--dim); font-family: var(--mono); font-size: 0.82rem; }
+  .events .ph { font-weight: 600; }
+  .events li.user .ph { color: var(--accent); }
+  .events .em { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+  .result { max-width: 62rem; margin: 0 auto; display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1rem; }
+  .files { display: flex; flex-direction: column; gap: 0.3rem; }
+  .files button { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files button[aria-current="true"] { border-color: var(--accent); font-weight: 600; }
+  .doc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; min-width: 0; }
+  .diff { max-height: none; white-space: pre; overflow-wrap: normal; }
+  .diff .add { color: var(--ok); }
+  .diff .del { color: var(--danger); }
+  .diff .hunk { color: var(--accent); }
+
+  .composer { border-top: 1px solid var(--border); background: var(--surface); padding: 0.7rem 1.25rem 0.8rem; }
+  .composer-in { max-width: 62rem; margin: 0 auto; display: flex; flex-direction: column; gap: 0.45rem; }
+  .composer textarea { resize: vertical; min-height: 3.2rem; max-height: 14rem; }
+  .composer-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .hint { color: var(--dim); font-size: 0.84rem; flex: 1; min-width: 12rem; }
+  #notice { color: var(--accent); font-size: 0.86rem; min-height: 1.3em; }
+  #notice.bad { color: var(--danger); }
+  #offline { position: fixed; right: 1rem; top: 0.7rem; background: var(--danger); color: #fff; border-radius: 6px; padding: 0.25rem 0.7rem; font-size: 0.84rem; }
+
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); padding: 1.1rem 1.25rem; width: min(40rem, 94vw); }
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+  dialog h3 { margin: 0 0 0.6rem; }
+  dialog label { display: block; font-size: 0.84rem; font-weight: 600; margin: 0.6rem 0 0.2rem; }
+  dialog .row { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.9rem; }
+  dialog small { color: var(--dim); font-weight: 400; }
+
+  @media (max-width: 800px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+    .side { border-right: none; border-bottom: 1px solid var(--border); max-height: 34dvh; }
+    .result { grid-template-columns: 1fr; }
+    .events li { grid-template-columns: 4.6rem minmax(0, 1fr); }
+    .events .ph { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <header>
+      <h1>Features</h1>
+      <button id="new-btn" type="button">New feature</button>
+    </header>
+    <ul id="feature-list" aria-label="Features"></ul>
+    <form id="open-form">
+      <input id="open-name" placeholder="Open a feature by name" aria-label="Feature name" autocomplete="off">
+      <button type="submit">Open</button>
+    </form>
+  </aside>
+
+  <main class="main">
+    <div id="welcome">
+      <h2>Select a feature</h2>
+      <p>Each feature has five agents. Open a feature to read what each agent did, and to send a message to an agent.</p>
+    </div>
+    <section id="feature" hidden>
+      <div class="head">
+        <div class="head-row">
+          <h2 id="f-name">Feature</h2>
+          <span id="f-pill" class="pill"></span>
+          <span id="f-facts" class="facts"></span>
+          <span class="spacer"></span>
+          <button id="stop-btn" type="button" class="danger" hidden>Stop the agents</button>
+        </div>
+        <p id="f-task" class="task"></p>
+        <p id="f-banner" class="banner" hidden></p>
+      </div>
+      <div id="tabs" class="tabs" role="tablist" aria-label="Views of the feature"></div>
+      <div id="panel" class="panel" tabindex="-1"></div>
+      <form id="composer" class="composer">
+        <div class="composer-in">
+          <textarea id="message" rows="2" aria-label="Message" placeholder="Write a message"></textarea>
+          <div class="composer-row">
+            <span id="hint" class="hint"></span>
+            <span id="notice" role="status"></span>
+            <span id="send-buttons" class="composer-row"></span>
+          </div>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+<div id="offline" hidden role="alert">No connection to the worker</div>
+
+<dialog id="new-dialog">
+  <form id="new-form" method="dialog">
+    <h3>New feature</h3>
+    <label for="n-name">Name <small>lower-case letters, digits, and hyphens</small></label>
+    <input id="n-name" required pattern="[a-z0-9]([a-z0-9\-]{0,48}[a-z0-9])?" autocomplete="off">
+    <label for="n-repo">Git URL of the project</label>
+    <input id="n-repo" required placeholder="https://github.com/owner/project.git">
+    <label for="n-ref">Branch, tag, or commit <small>empty: the default branch</small></label>
+    <input id="n-ref">
+    <label for="n-task">The feature to implement</label>
+    <textarea id="n-task" rows="5" required></textarea>
+    <label for="n-setup">Setup command in the checkout <small>optional, for example a package install</small></label>
+    <input id="n-setup">
+    <p id="n-error" class="error" role="alert"></p>
+    <div class="row">
+      <button type="button" id="n-cancel">Cancel</button>
+      <button type="submit" class="primary">Start the pipeline</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+// One page for the worker API: the list of the features, the conversation of each agent, and a message box.
+const ROLES = ["researcher", "architect", "implementer", "tester", "reviewer"];
+const TAB = { timeline: "timeline", result: "result" };
+const TABS = [TAB.timeline, ...ROLES, TAB.result];
+const POLL_MS = { list: 10000, status: 4000, chat: 2500 };
+const NEAR_BOTTOM_PX = 140;
+const PATCH = "patch";
+const MODE = { agent: "agent", round: "round" };
+
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Makes an element. A child can be a node, a text, or nothing. */
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === false || value === null || value === undefined) continue;
+    if (key === "class") el.className = value;
+    else if (key === "html") el.innerHTML = value;
+    else if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
+    else el.setAttribute(key, value === true ? "" : value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    el.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return el;
+}
+
+// region: text
+function esc(text) {
+  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/** The text of one line as HTML: code spans, bold text, and links. The text is escaped first. */
+function inline(text) {
+  return text
+    .split("`")
+    .map((part, index) => {
+      if (index % 2 === 1) return `<code>${esc(part)}</code>`;
+      return esc(part)
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:)]/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+    })
+    .join("");
+}
+
+/** A small Markdown reader: code blocks, headings, lists, and paragraphs. Each other mark stays as text. */
+function md(source) {
+  const out = [];
+  let paragraph = [];
+  let list = [];
+  const flush = () => {
+    if (paragraph.length > 0) out.push(`<p>${paragraph.map(inline).join("<br>")}</p>`);
+    if (list.length > 0) out.push(`<ul>${list.map((item) => `<li>${inline(item)}</li>`).join("")}</ul>`);
+    paragraph = [];
+    list = [];
+  };
+  const lines = String(source).replace(/\r/g, "").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*```/.test(line)) {
+      flush();
+      const code = [];
+      for (index += 1; index < lines.length && !/^\s*```/.test(lines[index]); index += 1) code.push(lines[index]);
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line);
+    const item = /^\s*(?:[-*]|\d+[.)])\s+(.*)$/.exec(line);
+    if (heading) {
+      flush();
+      out.push(`<h4 class="md-h">${inline(heading[1])}</h4>`);
+    } else if (item) {
+      if (paragraph.length > 0) flush();
+      list.push(item[1]);
+    } else if (line.trim() === "") {
+      flush();
+    } else {
+      if (list.length > 0) flush();
+      paragraph.push(line);
+    }
+  }
+  flush();
+  return out.join("");
+}
+
+function diff(text) {
+  return text
+    .split("\n")
+    .map((line) => {
+      const escaped = esc(line);
+      if (line.startsWith("@@")) return `<span class="hunk">${escaped}</span>`;
+      if (line.startsWith("+") && !line.startsWith("+++")) return `<span class="add">${escaped}</span>`;
+      if (line.startsWith("-") && !line.startsWith("---")) return `<span class="del">${escaped}</span>`;
+      return escaped;
+    })
+    .join("\n");
+}
+
+function clock(at) {
+  return new Date(at).toLocaleTimeString([], { hour12: false });
+}
+
+function timeEl(at) {
+  if (!at) return null;
+  return h("time", { class: "at", datetime: new Date(at).toISOString(), title: new Date(at).toLocaleString() }, clock(at));
+}
+
+function tokens(count) {
+  if (count >= 1e6) return `${(count / 1e6).toFixed(2)} M`;
+  if (count >= 1e3) return `${Math.round(count / 1e3)} k`;
+  return String(count);
+}
+// endregion: text
+
+// region: state
+const state = {
+  features: [],
+  name: null,
+  tab: null,
+  status: null,
+  /** Each change of the feature or of the tab gets a new number. An answer for an old number is not used. */
+  epoch: 0,
+  chat: null,
+  /** The values that the head and the timeline show now, as JSON text. */
+  drawn: { head: "", timeline: "" },
+  /** Messages that the user sent and that are not in a transcript yet. */
+  outbox: [],
+  /** True for one change of the view: the line of a send stays when the send opens a tab. */
+  keepNotice: false,
+};
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const type = response.headers.get("content-type") ?? "";
+  const body = type.includes("json") ? await response.json() : await response.text();
+  if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`);
+  return body;
+}
+
+function send(path, method, body) {
+  const options = { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) };
+  return api(path, options);
+}
+
+function pipelineRuns(status) {
+  return status?.pipeline != null && status.pipeline.status !== "terminal";
+}
+
+function busyRole(status) {
+  return ROLES.find((role) => status?.conversations?.[role]?.busy);
+}
+
+function featureState(status) {
+  if (!status?.exists) return "new";
+  if (status.blocked) return "blocked";
+  if (pipelineRuns(status)) return "running";
+  return status.pipeline?.result?.verdict ?? status.pipeline?.outcome ?? "new";
+}
+// endregion: state
+
+// region: list
+function renderList() {
+  const list = $("feature-list");
+  if (state.features.length === 0) {
+    list.replaceChildren(h("li", { class: "empty" }, "No feature yet. Start one with “New feature”."));
+    return;
+  }
+  list.replaceChildren(
+    ...state.features.map((feature) => {
+      const running = feature.state === "running";
+      const work = feature.busy.length > 0 ? ` · ${feature.busy.join(", ")} works` : "";
+      const meta = running ? `${feature.phase} · round ${feature.round}${work}` : `round ${feature.round} · ${feature.model}`;
+      return h(
+        "li",
+        {},
+        h(
+          "a",
+          { href: `#/${feature.name}`, class: feature.name === state.name ? "active" : "", title: feature.task },
+          h("span", { class: "fname" }, feature.name),
+          h("span", { class: `pill s-${feature.state}` }, running ? h("span", { class: "dot" }) : null, feature.state),
+          h("span", { class: "fmeta" }, meta),
+        ),
+      );
+    }),
+  );
+}
+
+async function loadList() {
+  state.features = (await api("/features")).features;
+  renderList();
+}
+// endregion: list
+
+// region: feature head
+function renderHead() {
+  const status = state.status;
+  const values = JSON.stringify([state.name, state.tab, status?.exists, status?.blocked, status?.pipeline, status?.conversations, status?.featureModel, status?.spec?.task]);
+  if (values === state.drawn.head) return;
+  state.drawn.head = values;
+  $("f-name").textContent = state.name;
+  const current = featureState(status);
+  const pill = $("f-pill");
+  pill.className = `pill s-${current}`;
+  pill.replaceChildren(current === "running" ? h("span", { class: "dot" }) : "", current);
+  const facts = [];
+  if (status?.pipeline) facts.push(`${status.pipeline.phase ?? "-"} · round ${status.pipeline.round ?? "-"}`);
+  const model = status?.featureModel ?? status?.model;
+  if (model) facts.push(model.modelId);
+  $("f-facts").textContent = facts.join(" · ");
+  $("f-task").textContent = status?.spec?.task ?? (status ? "This feature has no pipeline. Start it with “New feature”." : "");
+  $("f-task").title = status?.spec?.task ?? "";
+  $("f-banner").hidden = !status?.blocked;
+  $("f-banner").textContent = status?.blocked ?? "";
+  $("stop-btn").hidden = !(pipelineRuns(status) || busyRole(status));
+
+  $("tabs").replaceChildren(
+    ...TABS.map((tab) => {
+      const conversation = status?.conversations?.[tab];
+      const isRole = ROLES.includes(tab);
+      return h(
+        "button",
+        {
+          type: "button",
+          role: "tab",
+          class: `tab${isRole && !conversation ? " none" : ""}`,
+          "aria-selected": String(tab === state.tab),
+          "data-tab": tab,
+          onclick: () => go(state.name, tab),
+        },
+        conversation?.busy ? h("span", { class: "dot", title: "works now" }) : null,
+        tab,
+      );
+    }),
+  );
+  renderComposer();
+}
+
+function renderComposer() {
+  const status = state.status;
+  const buttons = [];
+  let hint = "";
+  const tabRole = ROLES.includes(state.tab) && status?.conversations?.[state.tab] ? state.tab : null;
+  if (!status?.exists) hint = "A feature without a pipeline gets no message.";
+  else if (status.blocked) hint = "The agents wait, so a message cannot go to them.";
+  else if (pipelineRuns(status)) {
+    const role = tabRole ?? busyRole(status) ?? null;
+    buttons.push({ label: role ? `Send to the ${role}` : "Send to the active agent", mode: MODE.agent, role, primary: true });
+    hint = "The pipeline runs. A busy agent reads your message after its current tool calls.";
+  } else {
+    buttons.push({ label: "Start a new round", mode: MODE.round, role: null, primary: true });
+    if (tabRole) buttons.push({ label: `Ask the ${tabRole} only`, mode: MODE.agent, role: tabRole });
+    hint = "A new round: the implementer makes the change, then the tester and the reviewer check it.";
+  }
+  $("hint").textContent = hint;
+  $("message").disabled = buttons.length === 0;
+  $("send-buttons").replaceChildren(
+    ...buttons.map((button) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: button.primary ? "primary" : "",
+          "data-mode": button.mode,
+          onclick: () => sendMessage(button),
+        },
+        button.label,
+      ),
+    ),
+  );
+}
+
+/** A short line next to the send buttons. It goes away after some seconds, and when the view changes. */
+const NOTICE_MS = 8000;
+let noticeTimer = 0;
+function notice(text, bad = false) {
+  clearTimeout(noticeTimer);
+  $("notice").textContent = text;
+  $("notice").className = bad ? "bad" : "";
+  if (text !== "") noticeTimer = setTimeout(() => notice(""), NOTICE_MS);
+}
+
+async function sendMessage(button) {
+  const content = $("message").value.trim();
+  if (content === "") {
+    notice("Write a message first.", true);
+    return;
+  }
+  const name = state.name;
+  for (const el of $("send-buttons").children) el.disabled = true;
+  try {
+    const body = { content, mode: button.mode, ...(button.role ? { role: button.role } : {}) };
+    const answer = await send(`/features/${name}/messages`, "POST", body);
+    $("message").value = "";
+    if (answer.delivery === MODE.round) {
+      notice("A new round starts.");
+      state.keepNotice = state.tab !== "implementer";
+      go(name, "implementer");
+    } else {
+      const how = answer.delivery === "steer" ? "reads it after its current tool calls" : "answers now";
+      notice(`The ${answer.role} ${how}.`);
+      state.outbox.push({ name, role: answer.role, text: content });
+      if (state.tab === answer.role && state.chat) addPending(state.chat, content);
+      else {
+        state.keepNotice = true;
+        go(name, answer.role);
+      }
+    }
+    if (name === state.name) {
+      state.status = answer.status;
+      redrawHead();
+    }
+    loadList().catch(() => {});
+  } catch (error) {
+    notice(error.message, true);
+    renderComposer();
+  }
+}
+
+/** A change that the head does not see in its values, for example the end of a send. */
+function redrawHead() {
+  state.drawn.head = "";
+  renderHead();
+}
+
+async function loadStatus() {
+  if (!state.name) return;
+  const epoch = state.epoch;
+  const name = state.name;
+  const status = await api(`/features/${name}`);
+  if (name !== state.name) return;
+  state.status = status;
+  if (state.tab === null) {
+    // Without a tab in the address, open the agent that works now.
+    const tab = busyRole(status) ?? (status.conversations.implementer ? "implementer" : TAB.timeline);
+    history.replaceState(null, "", `#/${name}/${tab}`);
+    state.tab = tab;
+    state.epoch += 1;
+    renderHead();
+    await openTab();
+    return;
+  }
+  renderHead();
+  if (epoch === state.epoch && state.tab === TAB.timeline) renderTimeline();
+}
+// endregion: feature head
+
+// region: timeline
+function renderTimeline(again = false) {
+  const status = state.status;
+  if (!status) return;
+  const values = JSON.stringify([state.name, status.pipeline, status.events.length, status.sandbox, status.usage, status.blocked]);
+  if (!again && values === state.drawn.timeline) return;
+  state.drawn.timeline = values;
+  const panel = $("panel");
+  const total = Object.values(status.usage?.models ?? {}).reduce((sum, model) => sum + (model.totalTokens ?? 0), 0);
+  const result = status.pipeline?.result;
+  const facts = [
+    ["State", featureState(status)],
+    ["Phase", status.pipeline ? `${status.pipeline.phase ?? "-"}, round ${status.pipeline.round ?? "-"}` : "-"],
+    ["Result", result ? result.note : (status.pipeline?.error ?? "-")],
+    ["Model", status.featureModel ? `${status.featureModel.provider}/${status.featureModel.modelId}` : "-"],
+    ["Tokens", total > 0 ? tokens(total) : "-"],
+    ["Sandbox", status.sandbox.id ? `${status.sandbox.id.slice(0, 8)} (number ${status.sandbox.generation})` : "none"],
+    ["Repository", status.spec?.repo ?? "-"],
+    ["Database of this feature", status.persistence.objectPrefix],
+  ];
+  panel.replaceChildren(
+    h("div", { class: "facts-grid" }, facts.map(([name, value]) => h("div", { class: "fact" }, h("b", {}, name), h("span", {}, value)))),
+    h(
+      "ul",
+      { class: "events" },
+      // The newest event is first.
+      [...status.events].reverse().map((event) =>
+        h(
+          "li",
+          { class: event.phase === "user" ? "user" : "" },
+          timeEl(event.at),
+          h("span", { class: "ph" }, event.phase),
+          h("span", { class: "em" }, event.message),
+        ),
+      ),
+    ),
+  );
+}
+// endregion: timeline
+
+// region: chat
+function newChat(role) {
+  const box = h("div", { class: "chat" });
+  const live = h("div", { class: "msg agent live", hidden: true });
+  const older = h("button", { type: "button", class: "more-btn", hidden: true, onclick: loadOlder }, "Show earlier messages");
+  box.append(older, live);
+  const chat = { role, box, live, older, calls: new Map(), pending: [], lastId: 0, firstId: null, loaded: false, loading: false };
+  for (const sent of state.outbox) {
+    if (sent.name === state.name && sent.role === role) addPending(chat, sent.text);
+  }
+  return chat;
+}
+
+function callCard(call, chat) {
+  const status = h("span", { class: "st" }, "…");
+  const output = h("pre", { class: "out", hidden: true });
+  const card = h(
+    "details",
+    { class: "tool" },
+    h("summary", {}, h("span", { class: "tname" }, call.name), h("span", { class: "ttitle" }, call.title), status),
+    call.args ? h("pre", { class: "args" }, call.args) : null,
+    output,
+  );
+  card.parts = { status, output };
+  if (call.id) chat.calls.set(call.id, card);
+  return card;
+}
+
+function fillResult(card, item) {
+  card.classList.remove("running");
+  card.classList.add("done");
+  card.classList.toggle("failed", item.isError);
+  card.parts.status.textContent = item.isError ? "error" : "done";
+  card.parts.output.hidden = false;
+  card.parts.output.textContent = item.text || "(no output)";
+}
+
+function addPending(chat, text) {
+  const el = h(
+    "div",
+    { class: "msg user pending" },
+    h("div", { class: "who" }, "You · the agent did not read it yet"),
+    h("div", { class: "bubble", html: md(text) }),
+  );
+  chat.pending.push({ text, el });
+  chat.box.insertBefore(el, chat.live);
+  requestAnimationFrame(() => {
+    $("panel").scrollTop = $("panel").scrollHeight;
+  });
+}
+
+/** The element of one chat item, or nothing when the item went into the card of its tool call. */
+function itemEl(item, chat) {
+  if (item.type === "note") return h("div", { class: "note" }, item.text);
+  if (item.type === "tool") {
+    const known = chat.calls.get(item.callId);
+    const card = known ?? callCard({ id: item.callId, name: item.name, title: "", args: "" }, chat);
+    fillResult(card, item);
+    return known ? null : card;
+  }
+  if (item.type === "prompt" && item.source === "user") {
+    const waiting = chat.pending.findIndex((pending) => pending.text === item.text);
+    if (waiting !== -1) chat.pending.splice(waiting, 1)[0].el.remove();
+    const sent = state.outbox.findIndex((entry) => entry.name === state.name && entry.role === chat.role && entry.text === item.text);
+    if (sent !== -1) state.outbox.splice(sent, 1);
+    return h("div", { class: "msg user" }, h("div", { class: "who" }, "You", timeEl(item.at)), h("div", { class: "bubble", html: md(item.text) }));
+  }
+  if (item.type === "prompt") {
+    const label = item.step ? `step ${item.step}` : "prompt";
+    const card = h(
+      "details",
+      { class: "msg pipeline" },
+      h("summary", {}, h("span", { class: "tag" }, "pipeline"), `${label} for the ${chat.role}`, timeEl(item.at)),
+      h("div", { class: "body", html: md(item.text) }),
+    );
+    if (!item.request) return card;
+    // The prompt starts a new round: show the request of the user before it.
+    const asked = h("div", { class: "msg user" }, h("div", { class: "who" }, "You · new round", timeEl(item.at)), h("div", { class: "bubble", html: md(item.request) }));
+    const both = document.createDocumentFragment();
+    both.append(asked, card);
+    return both;
+  }
+  const el = h("div", { class: "msg agent" }, h("div", { class: "who" }, chat.role, timeEl(item.at)));
+  if (item.thinking) {
+    el.append(h("details", { class: "thinking" }, h("summary", {}, "thinking"), h("div", { class: "body", html: md(item.thinking) })));
+  }
+  if (item.text) el.append(h("div", { class: "text", html: md(item.text) }));
+  for (const call of item.calls) el.append(callCard(call, chat));
+  if (item.error) el.append(h("div", { class: "error" }, item.error));
+  else if (item.stop === "aborted") el.append(h("div", { class: "note" }, "stopped"));
+  return el;
+}
+
+function renderLive(chat, live) {
+  for (const tool of live.tools) {
+    const card = chat.calls.get(tool.callId);
+    if (!card || card.classList.contains("done")) continue;
+    card.classList.toggle("running", tool.status === "running");
+    card.parts.status.textContent = tool.status === "running" ? "runs" : tool.status === "pending" ? "waits" : "…";
+    if (tool.output) {
+      card.parts.output.hidden = false;
+      card.parts.output.textContent = tool.output;
+    }
+  }
+  chat.live.hidden = !live.busy;
+  if (!live.busy) return;
+  chat.live.replaceChildren(h("div", { class: "who" }, h("span", { class: "dot" }), `the ${chat.role} works`));
+  if (live.retry) {
+    const text = `The model request failed: ${live.retry.error} The next try is at ${clock(live.retry.at)}.`;
+    chat.live.append(h("div", { class: "error" }, text));
+  }
+  if (live.thinking) chat.live.append(h("details", { class: "thinking" }, h("summary", {}, "thinking"), h("div", { class: "body", html: md(live.thinking) })));
+  if (live.text) chat.live.append(h("div", { class: "text", html: md(live.text) }));
+  for (const call of live.calls) chat.live.append(h("div", { class: "note" }, `prepares ${call.name}: ${call.title}`));
+}
+
+async function pollChat() {
+  const chat = state.chat;
+  if (!chat || chat.loading || !state.name) return;
+  chat.loading = true;
+  try {
+    const epoch = state.epoch;
+    const query = new URLSearchParams({ role: chat.role });
+    if (chat.loaded && chat.lastId > 0) query.set("after", String(chat.lastId));
+    const data = await api(`/features/${state.name}/chat?${query}`);
+    if (epoch !== state.epoch) return;
+    if (chat.loaded && chat.lastId > 0 && data.more) {
+      // More new entries than one answer holds: read the conversation again from its end.
+      state.chat = newChat(chat.role);
+      $("panel").replaceChildren(state.chat.box);
+      chat.loading = false;
+      return pollChat();
+    }
+    const panel = $("panel");
+    const stick = !chat.loaded || panel.scrollHeight - panel.scrollTop - panel.clientHeight < NEAR_BOTTOM_PX;
+    if (!chat.loaded) {
+      chat.loaded = true;
+      chat.older.hidden = !data.more;
+      chat.firstId = data.items[0]?.id ?? null;
+      if (data.conversationId === null) chat.box.insertBefore(h("div", { class: "note" }, `The ${chat.role} did not start yet.`), chat.live);
+    }
+    for (const item of data.items) {
+      const el = itemEl(item, chat);
+      if (el) chat.box.insertBefore(el, chat.pending[0]?.el ?? chat.live);
+      chat.lastId = Math.max(chat.lastId, item.id);
+    }
+    renderLive(chat, data.live);
+    if (stick) panel.scrollTop = panel.scrollHeight;
+  } finally {
+    chat.loading = false;
+  }
+}
+
+async function loadOlder() {
+  const chat = state.chat;
+  if (!chat || chat.firstId === null) return;
+  const epoch = state.epoch;
+  const query = new URLSearchParams({ role: chat.role, before: String(chat.firstId) });
+  const data = await api(`/features/${state.name}/chat?${query}`);
+  if (epoch !== state.epoch) return;
+  const panel = $("panel");
+  const height = panel.scrollHeight;
+  const anchor = chat.older.nextSibling;
+  for (const item of data.items) {
+    const el = itemEl(item, chat);
+    if (el) chat.box.insertBefore(el, anchor);
+  }
+  chat.firstId = data.items[0]?.id ?? chat.firstId;
+  chat.older.hidden = !data.more;
+  panel.scrollTop += panel.scrollHeight - height;
+}
+// endregion: chat
+
+// region: result
+async function renderResult() {
+  const epoch = state.epoch;
+  const name = state.name;
+  const panel = $("panel");
+  panel.replaceChildren(h("div", { class: "note" }, "Reading the result…"));
+  const artifacts = await api(`/features/${name}/artifacts`);
+  if (epoch !== state.epoch) return;
+  const entries = [...artifacts.files.map((path) => ({ path, label: path.split("/").pop() })), ...(artifacts.patchBytes > 0 ? [{ path: PATCH, label: "the diff of the feature branch" }] : [])];
+  if (entries.length === 0) {
+    panel.replaceChildren(h("div", { class: "note" }, "The pipeline collects the documents and the diff at its end. Nothing is there yet."));
+    return;
+  }
+  const doc = h("div", { class: "doc" });
+  const files = h("div", { class: "files" });
+  const show = async (entry, button) => {
+    for (const el of files.children) el.removeAttribute("aria-current");
+    button.setAttribute("aria-current", "true");
+    const text = await api(`/features/${name}/artifacts/${entry.path}`);
+    if (epoch !== state.epoch) return;
+    if (entry.path === PATCH) doc.replaceChildren(h("pre", { class: "diff", html: diff(text) }));
+    else doc.innerHTML = md(text);
+  };
+  for (const entry of entries) {
+    const button = h("button", { type: "button", title: entry.path, onclick: () => show(entry, button) }, entry.label);
+    files.append(button);
+  }
+  const collected = artifacts.collectedAt ? `Collected at ${new Date(artifacts.collectedAt).toLocaleString()}.` : "";
+  panel.replaceChildren(h("div", { class: "result" }, h("div", {}, h("p", { class: "note" }, collected), files), doc));
+  const first = entries.find((entry) => entry.path === PATCH) ?? entries[0];
+  await show(first, files.children[entries.indexOf(first)]);
+}
+// endregion: result
+
+// region: navigation
+function go(name, tab) {
+  location.hash = name ? `#/${name}${tab ? `/${tab}` : ""}` : "#/";
+}
+
+async function openTab() {
+  state.chat = null;
+  const panel = $("panel");
+  if (ROLES.includes(state.tab)) {
+    state.chat = newChat(state.tab);
+    panel.replaceChildren(state.chat.box);
+    await pollChat();
+  } else if (state.tab === TAB.result) {
+    await renderResult();
+  } else if (state.tab === TAB.timeline) {
+    panel.replaceChildren();
+    renderTimeline(true);
+    panel.scrollTop = 0;
+  }
+}
+
+async function applyHash() {
+  const [, name, tab] = location.hash.split("/");
+  const featureChanged = (name || null) !== state.name;
+  state.name = name || null;
+  state.tab = TABS.includes(tab) ? tab : null;
+  state.epoch += 1;
+  if (!state.keepNotice) notice("");
+  state.keepNotice = false;
+  $("welcome").hidden = state.name !== null;
+  $("feature").hidden = state.name === null;
+  renderList();
+  if (state.name === null) return;
+  if (featureChanged) {
+    state.status = null;
+    $("panel").replaceChildren();
+  }
+  renderHead();
+  try {
+    // Without a tab in the address, the status read selects the tab and opens it.
+    const hasTab = state.tab !== null;
+    if (featureChanged || state.status === null || !hasTab) await loadStatus();
+    if (hasTab) await openTab();
+  } catch (error) {
+    $("panel").replaceChildren(h("div", { class: "error" }, error.message));
+  }
+}
+
+/** Runs a read again and again, with a pause before each one. A hidden page reads nothing. */
+async function loop(read, ms) {
+  for (;;) {
+    await sleep(ms);
+    if (document.hidden) continue;
+    try {
+      await read();
+      $("offline").hidden = true;
+    } catch {
+      $("offline").hidden = false;
+    }
+  }
+}
+// endregion: navigation
+
+// region: events
+$("open-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("open-name").value.trim();
+  if (name !== "") go(name);
+  $("open-name").value = "";
+});
+
+$("composer").addEventListener("submit", (event) => event.preventDefault());
+$("message").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) $("send-buttons").querySelector("button.primary")?.click();
+});
+
+$("stop-btn").addEventListener("click", async () => {
+  if (!confirm(`Stop the agents of ${state.name}? The transcripts stay.`)) return;
+  try {
+    state.status = await send(`/features/${state.name}/abort`, "POST");
+    redrawHead();
+    notice("The agents stop.");
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("new-btn").addEventListener("click", () => {
+  $("n-error").textContent = "";
+  $("new-dialog").showModal();
+});
+$("n-cancel").addEventListener("click", () => $("new-dialog").close());
+$("new-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = $("n-name").value.trim();
+  const body = { repo: $("n-repo").value.trim(), ref: $("n-ref").value.trim(), task: $("n-task").value.trim(), userSetup: $("n-setup").value.trim() };
+  try {
+    await send(`/features/${name}`, "PUT", body);
+    $("new-dialog").close();
+    $("new-form").reset();
+    go(name, TAB.timeline);
+    loadList().catch(() => {});
+  } catch (error) {
+    $("n-error").textContent = error.message;
+  }
+});
+
+window.addEventListener("hashchange", applyHash);
+applyHash();
+loadList().catch(() => {});
+loop(loadList, POLL_MS.list);
+loop(loadStatus, POLL_MS.status);
+loop(pollChat, POLL_MS.chat);
+// endregion: events
+</script>
+</body>
+</html>

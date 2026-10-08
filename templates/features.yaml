@@ -1,0 +1,88 @@
+{{- if .Values.features }}
+{{- $submitSource := "src/jobs/submit-feature.ts" }}
+{{- /* Each value that goes into the Job spec is a part of the Job name, because a Job cannot change. */}}
+{{- $jobSpec := dict "images" .Values.images "affinity" .Values.nodeAffinity "source" (.Files.Get $submitSource) "deploy" (include "spike.deployId" .) | toJson }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spike.name" . }}-features
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+data:
+  {{- range $name, $feature := .Values.features }}
+  {{ $name }}.json: {{ dict "repo" $feature.repo "ref" ($feature.ref | default "") "task" $feature.task "rootSetup" ($feature.rootSetup | default "") "userSetup" ($feature.userSetup | default "") "env" ($feature.env | default dict) | toJson | quote }}
+  {{- end }}
+{{- range $name, $feature := .Values.features }}
+---
+# Sends the feature to the worker. The worker keeps a feature that exists, so the Job is safe to run again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The name has a hash, because a feature name can be too long for a Job name.
+  name: {{ include "spike.name" $ }}-submit-{{ printf "%s%s%s" $name ($feature | toJson) $jobSpec | sha256sum | trunc 10 }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "spike.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: submit
+  annotations:
+    pi-agent-celld-spike/feature: {{ $name | quote }}
+spec:
+  backoffLimit: 6
+  # No time limit for the finished Job: a Job that is gone comes back at the next upgrade, and a new request starts
+  # a feature again that someone stopped.
+  template:
+    metadata:
+      labels:
+        {{- include "spike.selectorLabels" (dict "Release" $.Release "component" "submit") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          {{- toYaml $.Values.nodeAffinity | nindent 10 }}
+      containers:
+        - name: submit
+          image: {{ $.Values.images.node }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
+          command: ["node", "/app/submit-feature.ts"]
+          env:
+            - name: WORKER_URL
+              value: {{ printf "http://%s.%s.svc.cluster.local" (include "spike.celldName" $) $.Release.Namespace | quote }}
+            - name: FEATURE_NAME
+              value: {{ $name | quote }}
+            - name: FEATURE_SPEC_PATH
+              value: /features/{{ $name }}.json
+            # The worker refuses the request until it runs the deployment of this chart revision.
+            - name: DEPLOY_ID
+              value: {{ include "spike.deployId" $ | quote }}
+          resources:
+            limits: { cpu: 200m, memory: 128Mi }
+            requests: { cpu: 10m, memory: 64Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+            - name: features
+              mountPath: /features
+              readOnly: true
+      volumes:
+        - name: app
+          configMap:
+            name: {{ include "spike.name" $ }}-worker-source
+            items:
+              - key: {{ include "spike.sourceKey" $submitSource }}
+                path: submit-feature.ts
+        - name: features
+          configMap:
+            name: {{ include "spike.name" $ }}-features
+{{- end }}
+{{- end }}

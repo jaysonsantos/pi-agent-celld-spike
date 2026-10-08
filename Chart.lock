@@ -1,0 +1,12 @@
+dependencies:
+- name: base
+  repository: file://vendor/opensandbox/charts/base
+  version: 1.1.0
+- name: opensandbox-controller
+  repository: file://vendor/opensandbox/charts/controller
+  version: 1.1.0
+- name: opensandbox-server
+  repository: file://vendor/opensandbox/charts/server
+  version: 1.1.0
+digest: sha256:8626920004b77f54fa7c2fdcfb4633a9f7f78ed672061d82961453c33cbc4f4d
+generated: "2026-10-07T10:24:37.834789959+02:00"

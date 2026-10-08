@@ -1,0 +1,38 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!node_modules",
+      "!.celld",
+      "!.direnv",
+      "!charts",
+      "!.tools",
+      // The output of pipeline runs, as the worker gave it.
+      "!results",
+      // scripts/deploy-local.sh writes this file from wrangler.jsonc.
+      "!wrangler.deploy.json",
+      // Copies of the OpenSandbox charts. They keep the format of their source.
+      "!vendor",
+      // Helm templates are not plain YAML or JSON.
+      "!templates"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

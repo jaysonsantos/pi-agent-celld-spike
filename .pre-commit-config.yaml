@@ -1,0 +1,48 @@
+# Run with prek: `prek run --all-files`. The tools come from the nix shell, so each hook is `language: system`.
+# vendor/ holds copies of the OpenSandbox charts, results/ holds the output of pipeline runs (a patch must keep its
+# white space), docs/media/ holds a recording, and pnpm writes pnpm-lock.yaml. The hooks leave all four alone.
+exclude: ^(vendor/|results/|docs/media/|pnpm-lock\.yaml$)
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-json
+        # wrangler.jsonc and biome.jsonc have comments.
+        exclude: \.jsonc$
+      - id: check-yaml
+        # A Helm template is not plain YAML.
+        exclude: ^templates/
+  - repo: local
+    hooks:
+      - id: biome
+        name: biome
+        entry: pnpm exec biome ci
+        language: system
+        pass_filenames: false
+        files: \.(ts|json|jsonc)$
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck --external-sources
+        language: system
+        types: [shell]
+      - id: typos
+        name: typos
+        entry: typos
+        language: system
+      - id: nixfmt
+        name: nixfmt
+        entry: nixfmt --check
+        language: system
+        files: \.nix$
+      - id: editorconfig-checker
+        name: editorconfig-checker
+        entry: editorconfig-checker
+        language: system
+      - id: gitleaks
+        name: gitleaks
+        entry: gitleaks dir --redact --no-banner
+        language: system
+        pass_filenames: false

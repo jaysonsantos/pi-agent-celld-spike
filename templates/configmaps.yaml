@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spike.name" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "src/gateway/*.ts" }}
+  {{ base $path }}: |
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spike.name" . }}-worker-source
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+data:
+  {{- range $path, $content := include "spike.workerSourceFiles" . | fromYaml }}
+  {{ include "spike.sourceKey" $path }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spike.name" . }}-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "scripts/in-cluster/*" }}
+  {{ base $path }}: |
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+---
+# The pod template that the OpenSandbox server merges into each sandbox. The server reads the file at its start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # opensandbox-server.server.volumes in values.yaml names this ConfigMap.
+  name: {{ include "spike.name" . }}-sandbox-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+data:
+  batchsandbox-template.yaml: |
+    metadata:
+    spec:
+      replicas: 1
+      template:
+        spec:
+          restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              {{- toYaml .Values.nodeAffinity | nindent 14 }}

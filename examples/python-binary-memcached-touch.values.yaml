@@ -1,0 +1,23 @@
+# The same feature as python-binary-memcached-touch.json, as a value of the chart:
+#   scripts/install.sh --values examples/python-binary-memcached-touch.values.yaml
+features:
+  memcached-touch:
+    repo: https://github.com/jaysonsantos/python-binary-memcached.git
+    ref: main
+    task: >-
+      Add a `touch(key, time)` method to the library. It sets a new expiration time on an existing key with the
+      memcached binary protocol command Touch (opcode 0x1c) and does not read or change the value. It returns True
+      when the key exists and False when it does not. Add it to the protocol class and to each public client class
+      (Client, ReplicatingClient, DistributedClient), with the same key handling and server selection as `delete`.
+      Add tests that run against a real memcached, and document the method in the user documentation and in
+      CHANGELOG.md if the project keeps one by hand.
+    # The tests of the project start memcached processes.
+    rootSetup: |
+      command -v memcached >/dev/null 2>&1 || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends memcached; }
+    userSetup: |
+      [ -x /workspace/venv/bin/python ] || python -m venv /workspace/venv
+      /workspace/venv/bin/pip install --quiet --disable-pip-version-check -e . --group test --group lint
+    env:
+      VIRTUAL_ENV: /workspace/venv
+      PATH: /workspace/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PYTHONDONTWRITEBYTECODE: "1"

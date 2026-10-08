@@ -1,0 +1,16 @@
+# A real model through OpenRouter. The key is not in this file:
+#   SPIKE_LLM_API_KEY=<key> scripts/install.sh --values examples/llm-openrouter.values.yaml
+llm:
+  api: openai-completions
+  baseUrl: https://openrouter.ai/api/v1
+  # pi-ai then sends the reasoning effort and the session id in the form of OpenRouter.
+  provider: openrouter
+  # The alias of OpenRouter for the newest GPT Luna model.
+  model: "~openai/gpt-luna-latest"
+  authHeader: authorization
+  authScheme: Bearer
+  # The model takes 1,050,000 tokens. A smaller window makes the Harness compact a long transcript earlier.
+  contextWindow: 400000
+  maxTokens: 32000
+  reasoning: true
+  thinkingLevel: medium

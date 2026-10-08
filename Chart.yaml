@@ -1,0 +1,22 @@
+apiVersion: v2
+name: pi-agent-celld-spike
+description: >-
+  Pi Durable on celld, with an S3 bucket as the persistence of each feature and OpenSandbox as the execution
+  environment of the agents.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.29.0-0"
+# OpenSandbox publishes no chart repository for release 1.1.0, so the three charts that this chart needs are
+# copies of manifests/charts/ at the tag release-1.1.0, in vendor/opensandbox/charts/.
+dependencies:
+  - name: base
+    alias: opensandbox-base
+    version: 1.1.0
+    repository: file://vendor/opensandbox/charts/base
+  - name: opensandbox-controller
+    version: 1.1.0
+    repository: file://vendor/opensandbox/charts/controller
+  - name: opensandbox-server
+    version: 1.1.0
+    repository: file://vendor/opensandbox/charts/server

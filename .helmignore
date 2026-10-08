@@ -1,0 +1,30 @@
+# Helm puts each file that is not ignored into the release record, and that record has a limit of 1 MiB.
+# The templates read only: package.json, the pnpm files, wrangler.jsonc, src/, and scripts/in-cluster/.
+.git/
+.direnv/
+.celld/
+.envrc
+.env
+.env.example
+node_modules/
+vendor/
+test/
+docs/
+result
+*.md
+flake.nix
+flake.lock
+biome.jsonc
+tsconfig.json
+.editorconfig
+.gitignore
+.pre-commit-config.yaml
+# The scripts of the developer machine. scripts/in-cluster/ stays: the Jobs of the chart run those.
+scripts/*.sh
+AGENTS.md
+CLAUDE.md
+.tools/
+examples/
+wrangler.deploy.json
+results/
+.dev.vars

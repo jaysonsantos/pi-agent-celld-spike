@@ -1,0 +1,219 @@
+# Values of the pi-agent-celld-spike chart.
+#
+# The OpenSandbox subcharts cannot read the release namespace: they take a namespace only as a literal value. So the
+# name `pi-agent-celld-spike` is repeated in this file, and the chart stops when the release namespace is different.
+# Install with: helm upgrade --install pi-agent-celld-spike . --namespace pi-agent-celld-spike --create-namespace
+
+# The one namespace of the release: celld, OpenSandbox, and the sandboxes of the features.
+namespace: pi-agent-celld-spike
+
+images:
+  celld: harbor-registry.home.jayson.com.br/ghcr/denoland/celld:0.6.1
+  # Runs the gateway sidecar and the jobs. Node 24 runs the TypeScript sources of this chart directly.
+  node: harbor-registry.home.jayson.com.br/dockerhub/library/node:24-bookworm-slim
+  pullPolicy: IfNotPresent
+
+# The bucket that holds all durable state. celld keeps one SQLite database for each feature below
+# <prefix>/cells/, and the worker deployment below <prefix>/deploy/.
+bucket:
+  name: pi-agent-celld-spike
+  prefix: fleet
+  # URL of the S3-compatible object store. Necessary; scripts/install.sh passes S3_ENDPOINT.
+  endpoint: ""
+  region: eu-central-1
+
+# Secret values. Pass them at install time; do not write them into a file in the repository.
+# scripts/install.sh reads the two S3 keys from the SOPS file that S3_CREDENTIALS_FILE names.
+secrets:
+  # Name of the Secret that this chart makes. The OpenSandbox server reads its API key from it (see below).
+  name: pi-agent-celld-spike
+  s3AccessKeyId: ""
+  s3SecretAccessKey: ""
+  # Empty: the chart keeps the key that the Secret has from an earlier install.
+  llmApiKey: ""
+  # Empty: the chart makes a random key at the first install and keeps it.
+  sandboxApiKey: ""
+
+# The model of the agents. The worker has no key: the gateway sidecar adds it to each request.
+llm:
+  # faux: a scripted model that needs no key, for tests of the durable parts.
+  # openai-completions, openai-responses, anthropic-messages: a real endpoint.
+  api: faux
+  # Base URL that the SDK of the API expects, for example https://api.openai.com/v1 or https://api.anthropic.com.
+  baseUrl: ""
+  # The provider id for pi-ai. pi-ai sets some request fields by this id: use `openrouter` for OpenRouter.
+  provider: gateway
+  model: faux-1
+  # The header that carries the key, and the word before the key. Anthropic: x-api-key with an empty scheme.
+  authHeader: authorization
+  authScheme: Bearer
+  contextWindow: 200000
+  maxTokens: 16384
+  # True when the model has a reasoning mode. thinkingLevel: off, minimal, low, medium, or high.
+  reasoning: false
+  thinkingLevel: medium
+
+pipeline:
+  # Rounds of implement, test, and review before the pipeline stops with the verdict needs-attention.
+  maxRounds: 3
+
+# The sandbox of a feature: one pod and one PersistentVolumeClaim (workspace-<feature>) for each feature.
+sandbox:
+  # A Debian-based image with git. The agents work as the user dev (uid 1000), which the worker makes.
+  image: harbor-registry.home.jayson.com.br/dockerhub/library/python:3.13-bookworm
+  arch: amd64
+  resources:
+    limits: { cpu: "2", memory: 2Gi }
+    requests: { cpu: 250m, memory: 512Mi }
+  workspace:
+    # The cluster has two default classes, so the class is explicit.
+    storageClass: local-path
+    size: 5Gi
+
+# The features to implement. The chart sends each one to the worker after an install or an upgrade. The request is
+# idempotent: a feature that exists keeps its state. A feature can also start with a PUT to the worker (README).
+#
+# features:
+#   my-feature:
+#     repo: https://github.com/owner/project.git
+#     ref: main
+#     task: |
+#       What to build.
+#     rootSetup: |
+#       Shell text that runs as root in the checkout at each sandbox start.
+#     userSetup: |
+#       Shell text that runs as the sandbox user in the checkout at each sandbox start.
+#     env:
+#       NAME: value of each agent command
+features: {}
+
+celld:
+  # celld takes its state from the bucket, so the local disk is a cache that a new pod can start without.
+  stateSizeLimit: 4Gi
+  terminationGracePeriodSeconds: 60
+  resources:
+    limits: { cpu: "2", memory: 2Gi }
+    requests: { cpu: 100m, memory: 256Mi }
+  env:
+    # One Harness with its SDKs needs more than the 128 MB default of one cell.
+    CELLD_V8_HEAP_LIMIT_MB: "768"
+    # A model answer can stream for longer than the 120 s default of one outbound request.
+    CELLD_FETCH_TIMEOUT_S: "900"
+    # celld stops itself when it cannot renew its node lease in this time. A write to the bucket from the home
+    # cluster sometimes takes some seconds, and the 10 s default then stops the node. With one node and a fixed
+    # node id, a long lease costs nothing: a new pod takes the cells back at once.
+    CELLD_TTL_MS: "60000"
+    # Time for one write to reach the bucket before the write fails. The default is 10 s.
+    CELLD_LTX_DURABILITY_TIMEOUT_SECS: "30"
+    RUST_LOG: info
+
+gateway:
+  resources:
+    limits: { cpu: "1", memory: 256Mi }
+    requests: { cpu: 20m, memory: 64Mi }
+
+deploy:
+  resources:
+    limits: { cpu: "2", memory: 2Gi }
+    requests: { cpu: 100m, memory: 512Mi }
+
+# Where the pods of this chart can run. The sandbox pods use the same rule (templates/sandbox-template.yaml).
+# The control-plane node of the cluster must not get new load.
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+      - matchExpressions:
+          - key: node-role.kubernetes.io/control-plane
+            operator: DoesNotExist
+          - key: kubernetes.io/arch
+            operator: In
+            values: [amd64]
+
+# region: OpenSandbox subcharts
+opensandbox-base:
+  crds:
+    install: true
+    # `helm uninstall` removes the definitions, and Kubernetes then removes each sandbox with them.
+    keep: false
+  # The Firecracker runtime is not used here.
+  fastSandbox:
+    crds: { install: false }
+    rbac: { create: false }
+    namespaces: { create: false }
+
+opensandbox-controller:
+  namespaceOverride: pi-agent-celld-spike
+  controller:
+    image:
+      repository: harbor-registry.home.jayson.com.br/dockerhub/opensandbox/controller
+    snapshot:
+      imageCommitterImage: harbor-registry.home.jayson.com.br/dockerhub/opensandbox/image-committer:release-1.1.0
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+
+opensandbox-server:
+  namespaceOverride: pi-agent-celld-spike
+  server:
+    image:
+      repository: harbor-registry.home.jayson.com.br/dockerhub/opensandbox/server
+      tag: release-1.1.0
+    # The chart default asks for 1 CPU and 4 Gi, which is too much for this cluster.
+    resources:
+      limits: { cpu: "1", memory: 1Gi }
+      requests: { cpu: 100m, memory: 256Mi }
+    env:
+      - name: OPENSANDBOX_SERVER_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: pi-agent-celld-spike
+            key: sandbox-api-key
+    volumes:
+      - name: sandbox-template
+        configMap:
+          name: pi-agent-celld-spike-sandbox-template
+    volumeMounts:
+      - name: sandbox-template
+        mountPath: /etc/pi-agent-celld-spike
+        readOnly: true
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+  # The server reads this file one time at its start. The subchart adds the [ingress] table.
+  configToml: |
+    [server]
+    host = "0.0.0.0"
+    port = 80
+
+    [log]
+    level = "INFO"
+
+    [runtime]
+    type = "kubernetes"
+    execd_image = "harbor-registry.home.jayson.com.br/dockerhub/opensandbox/execd:release-1.1.0"
+
+    [kubernetes]
+    kubeconfig_path = ""
+    namespace = "pi-agent-celld-spike"
+    workload_provider = "batchsandbox"
+    batchsandbox_template_file = "/etc/pi-agent-celld-spike/batchsandbox-template.yaml"
+    # The first pull of a sandbox image can take longer than the 60 s default.
+    sandbox_create_timeout_seconds = 240
+    informer_resync_seconds = 300
+    informer_watch_timeout_seconds = 60
+
+    [storage]
+    volume_default_size = "5Gi"
+
+    [egress]
+    image = "harbor-registry.home.jayson.com.br/dockerhub/opensandbox/egress:release-1.1.0"
+    mode = "dns+nft"
+# endregion: OpenSandbox subcharts

@@ -1,0 +1,17 @@
+{
+  // celld reads this file for `celld deploy` and `celld dev`. It accepts only a
+  // subset of the Wrangler keys, and it does not read wrangler.toml.
+  "name": "pi-agent-celld-spike",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "FEATURE", "class_name": "FeatureAgent" }, { "name": "INDEX", "class_name": "FeatureIndex" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FeatureAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["FeatureIndex"] }
+  ],
+  // The page of the worker is one HTML file, and esbuild puts it into the bundle as text.
+  "rules": [{ "type": "Text", "globs": ["**/*.html"] }]
+}

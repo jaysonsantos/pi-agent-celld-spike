@@ -1,0 +1,6 @@
+# pnpm runs the install script of a package only when this map allows it.
+# esbuild needs its script: it checks the platform binary that celld calls for the bundle.
+allowBuilds:
+  "@google/genai": false
+  esbuild: true
+  protobufjs: false

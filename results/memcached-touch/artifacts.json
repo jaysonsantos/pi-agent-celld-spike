@@ -1,0 +1,12 @@
+{
+  "collectedAt": "2026-10-07T10:27:23.110Z",
+  "status": "M  bmemcached/client/distributed.py\nM  bmemcached/client/mixin.py\nM  bmemcached/client/replicating.py\nM  bmemcached/protocol.py\nA  docs/features/memcached-touch/adr.md\nA  docs/features/memcached-touch/prd.md\nA  docs/features/memcached-touch/research.md\nA  docs/features/memcached-touch/review.md\nA  docs/features/memcached-touch/test-report.md\nM  docs/intro.rst\nM  test/test_distributed_client_hashing.py\nM  test/test_simple_functions.py\nA  test/test_touch.py\n",
+  "files": [
+    "docs/features/memcached-touch/adr.md",
+    "docs/features/memcached-touch/prd.md",
+    "docs/features/memcached-touch/research.md",
+    "docs/features/memcached-touch/review.md",
+    "docs/features/memcached-touch/test-report.md"
+  ],
+  "patchBytes": 26344
+}

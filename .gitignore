@@ -1,0 +1,13 @@
+node_modules/
+.celld/
+.direnv/
+.env
+result
+# Packaged copies of the charts in vendor/; `helm dependency build` makes them.
+charts/
+# The file is local: it can hold the kubeconfig path and keys of this machine.
+.envrc
+.tools/
+wrangler.deploy.json
+# Worker variables of `celld dev` on this machine.
+.dev.vars

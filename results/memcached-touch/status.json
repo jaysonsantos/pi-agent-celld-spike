@@ -1,0 +1,148 @@
+{
+  "feature": "memcached-touch",
+  "exists": true,
+  "spec": {
+    "name": "memcached-touch",
+    "repo": "https://github.com/jaysonsantos/python-binary-memcached.git",
+    "ref": "main",
+    "task": "Add a `touch(key, time)` method to the library. It sets a new expiration time on an existing key with the memcached binary protocol command Touch (opcode 0x1c) and does not read or change the value. It returns True when the key exists and False when it does not. Add it to the protocol class and to each public client class (Client, ReplicatingClient, DistributedClient), with the same key handling and server selection as `delete`. Add tests that run against a real memcached, and document the method in the user documentation and in CHANGELOG.md if the project keeps one by hand.",
+    "rootSetup": "command -v memcached >/dev/null 2>&1 || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends memcached; }\n",
+    "userSetup": "[ -x /workspace/venv/bin/python ] || python -m venv /workspace/venv\n/workspace/venv/bin/pip install --quiet --disable-pip-version-check -e . --group test --group lint\n",
+    "env": {
+      "PATH": "/workspace/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "VIRTUAL_ENV": "/workspace/venv"
+    }
+  },
+  "createdAt": "2026-10-07T10:15:16.941Z",
+  "pipeline": {
+    "taskId": 8,
+    "status": "terminal",
+    "phase": "finalize",
+    "round": 2,
+    "outcome": "completed",
+    "result": {
+      "verdict": "accepted",
+      "rounds": 2,
+      "note": "Round 2 passed the tests and the review."
+    },
+    "error": null
+  },
+  "conversations": {
+    "researcher": {
+      "id": 11,
+      "busy": false,
+      "runningTools": []
+    },
+    "architect": {
+      "id": 88,
+      "busy": false,
+      "runningTools": []
+    },
+    "implementer": {
+      "id": 151,
+      "busy": false,
+      "runningTools": []
+    },
+    "tester": {
+      "id": 288,
+      "busy": false,
+      "runningTools": []
+    },
+    "reviewer": {
+      "id": 465,
+      "busy": false,
+      "runningTools": []
+    }
+  },
+  "events": [
+    {
+      "at": 1791368131268,
+      "phase": "provision",
+      "message": "created sandbox 8b2f0feb-1f11-469d-9e7f-813a1a88078b"
+    },
+    {
+      "at": 1791368155212,
+      "phase": "prepare",
+      "message": "the sandbox is ready: the sandbox user exists; the checkout is on feature/memcached-touch; the root setup ran; the user setup ran"
+    },
+    {
+      "at": 1791368237200,
+      "phase": "research",
+      "message": "the research is written"
+    },
+    {
+      "at": 1791368321133,
+      "phase": "design",
+      "message": "the requirements and the decision record are written"
+    },
+    {
+      "at": 1791368481009,
+      "phase": "implement",
+      "message": "round 1 is implemented"
+    },
+    {
+      "at": 1791368622610,
+      "phase": "test",
+      "message": "the tester rejected round 1; start round 2"
+    },
+    {
+      "at": 1791368705339,
+      "phase": "implement",
+      "message": "round 2 is implemented"
+    },
+    {
+      "at": 1791368778599,
+      "phase": "test",
+      "message": "round 2 passed the tests"
+    },
+    {
+      "at": 1791368840187,
+      "phase": "review",
+      "message": "Round 2 passed the tests and the review."
+    },
+    {
+      "at": 1791368843110,
+      "phase": "finalize",
+      "message": "finished: accepted, 5 documents"
+    }
+  ],
+  "sandbox": {
+    "id": "8b2f0feb-1f11-469d-9e7f-813a1a88078b",
+    "generation": 1
+  },
+  "usage": {
+    "models": {
+      "openrouter/~openai/gpt-luna-latest": {
+        "input": 4907,
+        "output": 22622,
+        "cacheRead": 1660922,
+        "cacheWrite": 156813,
+        "reasoning": 9279,
+        "totalTokens": 1845264,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    },
+    "tools": {}
+  },
+  "model": {
+    "provider": "openrouter",
+    "modelId": "~openai/gpt-luna-latest"
+  },
+  "featureModel": {
+    "provider": "openrouter",
+    "modelId": "~openai/gpt-luna-latest"
+  },
+  "blocked": null,
+  "persistence": {
+    "cell": "FeatureAgent:b584491fbd4b44bcb50ef1bd03cc96e93c2a9ff59ff5eb9a19e2fed6ea075699",
+    "objectPrefix": "s3://pi-agent-celld-spike/fleet/cells/FeatureAgent:b584491fbd4b44bcb50ef1bd03cc96e93c2a9ff59ff5eb9a19e2fed6ea075699/",
+    "bootedAt": "2026-10-07T10:33:34.196Z"
+  }
+}

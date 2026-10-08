@@ -1,0 +1,19 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# A list item continues with three spaces, and a diagram has its own columns.
+indent_size = unset
+
+[{vendor,results}/**]
+# Copies of the OpenSandbox charts, and the output of pipeline runs, keep the format of their source.
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

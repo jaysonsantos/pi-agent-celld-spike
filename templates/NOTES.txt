@@ -1,0 +1,15 @@
+pi-agent-celld-spike is installed in the namespace {{ .Release.Namespace }}.
+
+State of each feature: {{ include "spike.bucketUrl" . }}/cells/  (one celld cell for each feature)
+Model: {{ .Values.llm.api }} / {{ .Values.llm.model }}
+
+Open the worker API:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "spike.celldName" . }} 8080:80
+
+Then:
+  curl -s localhost:8080/                                  # the routes
+  curl -s localhost:8080/features/<name>                   # status of a feature
+  curl -s localhost:8080/features/<name>/artifacts/patch   # the diff, after the pipeline ends
+
+Remove everything, the sandboxes and their volumes included:
+  helm -n {{ .Release.Namespace }} uninstall {{ .Release.Name }} && kubectl delete namespace {{ .Release.Namespace }}

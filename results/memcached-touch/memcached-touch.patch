@@ -1,0 +1,413 @@
+diff --git a/bmemcached/client/distributed.py b/bmemcached/client/distributed.py
+index 85ee54b..5bbd9e5 100644
+--- a/bmemcached/client/distributed.py
++++ b/bmemcached/client/distributed.py
+@@ -34,6 +34,19 @@ class DistributedClient(ClientMixin):
+     def _get_server(self, key):
+         return self._servers_by_ring_node[self._ring.get_node(key)]
+ 
++    def touch(self, key, time):
++        """Set a key's expiration time in seconds without reading or changing its value.
++
++        :param key: Key's name
++        :type key: str
++        :param time: Time in seconds that the key will expire.
++        :type time: int
++        :return: True if the key exists, otherwise False.
++        :rtype: bool
++        """
++        server = self._get_server(key)
++        return server.touch(key, time)
++
+     def delete(self, key, cas=0):
+         """
+         Delete a key/value from server. If key does not exist, it returns True.
+diff --git a/bmemcached/client/mixin.py b/bmemcached/client/mixin.py
+index 049926d..5637fec 100644
+--- a/bmemcached/client/mixin.py
++++ b/bmemcached/client/mixin.py
+@@ -156,6 +156,13 @@ class ClientMixin:
+     def replace(self, key, value, time=0, compress_level=-1, get_cas=False):
+         raise NotImplementedError()
+ 
++    def touch(self, key, time):
++        """Update an existing key's expiration, in seconds, without changing its value.
++
++        Return True if the key exists and False otherwise.
++        """
++        raise NotImplementedError()
++
+     def delete(self, key, cas=0):  # type: (str, int) -> bool
+         raise NotImplementedError()
+ 
+diff --git a/bmemcached/client/replicating.py b/bmemcached/client/replicating.py
+index a227be3..a5b6643 100644
+--- a/bmemcached/client/replicating.py
++++ b/bmemcached/client/replicating.py
+@@ -379,6 +379,21 @@ class ReplicatingClient(ClientMixin):
+             returns.append(server.replace(key, value, time, compress_level=compress_level))
+         return any(returns)
+ 
++    def touch(self, key, time):
++        """Set a key's expiration time in seconds without reading or changing its value.
++
++        :param key: Key's name
++        :type key: str
++        :param time: Time in seconds that the key will expire.
++        :type time: int
++        :return: True if the key exists on any replica, otherwise False.
++        :rtype: bool
++        """
++        returns = []
++        for server in self.servers:
++            returns.append(server.touch(key, time))
++        return any(returns)
++
+     def delete(self, key, cas=0):
+         """
+         Delete a key/value from server. If key does not exist, it returns True.
+diff --git a/bmemcached/protocol.py b/bmemcached/protocol.py
+index 9a3b266..0f7fcfd 100644
+--- a/bmemcached/protocol.py
++++ b/bmemcached/protocol.py
+@@ -65,6 +65,7 @@ class Protocol(threading.local):
+         "addq": {"command": 0x12, "packer": struct.Struct(HEADER_STRUCT + "LL")},
+         "replace": {"command": 0x03, "packer": struct.Struct(HEADER_STRUCT + "LL")},
+         "delete": {"command": 0x04, "packer": struct.Struct(HEADER_STRUCT)},
++        "touch": {"command": 0x1C, "packer": struct.Struct(HEADER_STRUCT + "I")},
+         "incr": {"command": 0x05, "packer": struct.Struct(HEADER_STRUCT + "QQL")},
+         "decr": {"command": 0x06, "packer": struct.Struct(HEADER_STRUCT + "QQL")},
+         "flush": {"command": 0x08, "packer": struct.Struct(HEADER_STRUCT + "I")},
+@@ -943,6 +944,32 @@ class Protocol(threading.local):
+         """
+         return self._incr_decr("decr", key, value, default, time)
+ 
++    def touch(self, key, time):
++        """Update the expiration time of an existing key without reading its value.
++
++        :param key: Key's name
++        :type key: str
++        :param time: Time in seconds that the key will expire.
++        :type time: int
++        :return: True if the key exists, otherwise False.
++        :rtype: bool
++        """
++        keybytes = str_to_bytes(key)
++        time = time if time >= 0 else self.MAXIMUM_EXPIRE_TIME
++        cmd = self.COMMANDS["touch"]
++        klen = len(keybytes)
++        self._send(
++            cmd["packer"].pack(self.MAGIC["request"], cmd["command"], klen, 4, 0, 0, klen + 4, 0, 0, time) + keybytes
++        )
++
++        (magic, opcode, keylen, extlen, datatype, status, bodylen, opaque, cas, extra_content) = self._get_response()
++
++        if status == self.STATUS["success"]:
++            return True
++        if status in (self.STATUS["key_not_found"], self.STATUS["server_disconnected"]):
++            return False
++        raise MemcachedException(f"Code: {status:d} Message: {extra_content}", status)
++
+     def delete(self, key, cas=0):
+         """
+         Delete a key/value from server. If key existed and was deleted, return True.
+diff --git a/docs/features/memcached-touch/adr.md b/docs/features/memcached-touch/adr.md
+new file mode 100644
+index 0000000..0b574b8
+--- /dev/null
++++ b/docs/features/memcached-touch/adr.md
+@@ -0,0 +1,31 @@
++# ADR: add memcached `touch`
++
++## Status
++
++Accepted
++
++## Context
++
++The package implements binary commands in `Protocol`, with `ClientMixin`, `ReplicatingClient`, and `DistributedClient` providing the public API. `Client` is an alias for `ReplicatingClient`. Existing `delete` implementations establish key conversion, request dispatch, and client routing. Touch uses opcode `0x1c` and carries a four-byte expiration extra followed by the key; it does not require value data. The requested result differs from delete's missing-key behavior: a missing item must return `False`. Existing storage and increment/decrement operations convert negative expiration values to `MAXIMUM_EXPIRE_TIME`. Project release notes are generated from Conventional Commits rather than maintained by hand.
++
++## Decision
++
++Add a protocol-level `touch(key, time)` operation and surface it through the shared client API. Build a Touch request with the registered opcode `0x1c`, the network-order unsigned 32-bit expiration extra, and key bytes produced by `str_to_bytes`; send no value and perform no fetch. Match existing expiration convention by translating negative `time` to `MAXIMUM_EXPIRE_TIME`, while passing non-negative values through to unsigned packing. Return `True` for protocol success and `False` for key-not-found or server-disconnected responses, and preserve existing exception handling for other unexpected statuses.
++
++Implement `ReplicatingClient.touch` by forwarding to every server and aggregating with `any`, matching its `delete` behavior. Implement `DistributedClient.touch` by selecting `_get_server(key)` and forwarding key and time, matching its `delete` routing. The `Client` alias requires no separate implementation. Document the method for users and via its API docstring. Add real-server coverage for return values and value preservation, plus client dispatch coverage. Do not manually edit `CHANGELOG.md`; the release workflow derives entries from commits.
++
++## Alternatives considered
++
++- **Fetch then rewrite the item with a new expiration:** rejected because it reads and changes the value, adds unnecessary protocol operations, and risks overwriting concurrent updates.
++- **Expose only the protocol method:** rejected because the feature is requested as a library API and must work consistently through each public client class.
++- **Use the existing delete result semantics for a missing key:** rejected because the required Touch result is `False` when no item exists.
++- **Add stricter time validation or a new negative-time rule:** rejected to avoid introducing expiration behavior inconsistent with existing commands. The binary unsigned field remains the final constraint for non-negative values.
++- **Manually add a changelog entry:** rejected because repository guidance states Commitizen generates changelog content from Conventional Commits.
++
++## Consequences
++
++- Callers can extend expiration without loading or replacing the cached value.
++- The new method shares established key encoding, negative expiration handling, and client routing patterns.
++- Replicated calls report success if at least one configured replica reports success; distributed calls report the selected server's result.
++- Time remains required, and values not representable by the unsigned protocol field retain the existing packing failure behavior rather than gaining new validation.
++- Users learn about the API in the documentation; release notes continue to be produced through the existing commit-based workflow.
+diff --git a/docs/features/memcached-touch/prd.md b/docs/features/memcached-touch/prd.md
+new file mode 100644
+index 0000000..31bef81
+--- /dev/null
++++ b/docs/features/memcached-touch/prd.md
+@@ -0,0 +1,36 @@
++# Product requirements: memcached `touch`
++
++## Problem
++
++Clients cannot change a cached item's expiration without fetching or replacing its value. Memcached's binary protocol provides a Touch command for this purpose, but this library does not expose it.
++
++## Goals
++
++- Expose `touch(key, time)` through the protocol and public client APIs.
++- Extend expiration on an existing item without retrieving or modifying its value.
++- Follow existing key conversion and client-specific server selection behavior.
++- Verify the feature against a real memcached server and document its public use.
++
++## Non-goals
++
++- Add a default value for `time`, new expiration validation rules, or a new expiration model.
++- Add multi-key touch, CAS support, or fallback behavior that reads and rewrites the value.
++- Add a hand-maintained changelog entry; this project generates its changelog from Conventional Commits.
++
++## Requirements
++
++1. `Protocol` MUST implement `touch(key, time)` using binary protocol opcode `0x1c`, with the expiration encoded as a four-byte network-order extra and the key encoded using the existing `str_to_bytes` handling.
++2. A successful Touch response MUST return `True`; a key-not-found response MUST return `False`. A disconnected server MUST be handled consistently with other single-command protocol methods and return `False`; other unexpected statuses MUST follow existing protocol error behavior.
++3. Touch MUST NOT issue a get or a storage command, and MUST NOT read, deserialize, or change the item's value.
++4. The public `Client`, `ReplicatingClient`, and `DistributedClient` APIs MUST expose `touch(key, time)` and return a boolean. `Client` MUST retain its existing alias behavior as a `ReplicatingClient`.
++5. Public client key handling and server selection MUST match `delete`: `ReplicatingClient` sends the operation to every configured server and returns whether any server succeeds; `DistributedClient` sends it only to the hash-selected server. The selected protocol method MUST receive the original key and time.
++6. `time` MUST be required and expressed in seconds, matching the requested signature and the existing expiration-bearing commands. Negative times MUST use the established `MAXIMUM_EXPIRE_TIME` convention; non-negative values MUST be packed as the protocol's unsigned 32-bit expiration.
++7. Real-memcached integration tests MUST cover an existing key, a missing key, and preservation of the stored value. Tests MUST exercise the public API; routing/replication forwarding should also be verified at the client layer.
++8. User documentation MUST describe `touch(key, time)`, its seconds-based expiration, and its boolean result. API documentation MUST include the method through its public docstring/autodoc path. Do not add a manual `CHANGELOG.md` entry because release notes are generated from commits in this repository.
++
++## Acceptance criteria
++
++- Protocol tests or equivalent verification confirm opcode `0x1c`, the four-byte network-order expiration extra, key bytes, and result handling.
++- Integration tests against real memcached prove `touch` returns `True` for an existing key and `False` for a missing key, while the existing key's value remains unchanged.
++- Tests confirm replicating and distributed clients use the same target selection/aggregation pattern as their respective `delete` implementations, and that `Client` exposes the operation.
++- Public user/API documentation explains the method; no hand-authored changelog entry is required under the project's generated-changelog convention.
+diff --git a/docs/features/memcached-touch/research.md b/docs/features/memcached-touch/research.md
+new file mode 100644
+index 0000000..1aa8db7
+--- /dev/null
++++ b/docs/features/memcached-touch/research.md
+@@ -0,0 +1,36 @@
++# Research: memcached `touch`
++
++## Summary
++
++The package implements the memcached binary protocol in `Protocol`, with public client classes layered over it. `Client` is a backward-compatible alias of `ReplicatingClient`; the three named public classes therefore require implementation in the protocol, replicating client, and distributed client (and the mixin declaration). The repository has real-memcached integration tests, Sphinx documentation, and a `CHANGELOG.md`.
++
++## Relevant code (with file paths)
++
++- `bmemcached/protocol.py`: `Protocol.COMMANDS` registers binary opcodes and packers. `Protocol.delete` demonstrates request construction, key conversion with `str_to_bytes`, response status handling, and disconnected-server behavior. Expiration-bearing storage commands in `_set_add_replace` and `_incr_decr` provide context for expiration packing and negative-time conventions. A Touch request carries the key and a 4-byte expiration extra; it does not need a value or value decode.
++- `bmemcached/client/mixin.py`: shared client API surface and common construction of `Protocol` instances. `delete` is declared here as an abstract placeholder.
++- `bmemcached/client/replicating.py`: `ReplicatingClient.delete` forwards the same key/CAS to each server and returns `any(...)`. `Client` points to this class in `bmemcached/client/__init__.py`; `bmemcached/__init__.py` exports `Client`, `ReplicatingClient`, and `DistributedClient`.
++- `bmemcached/client/distributed.py`: `DistributedClient.delete` chooses a server using `_get_server(key)` and forwards the key. This is the corresponding server-selection path for a single key.
++- `test/test_simple_functions.py`: real-server command integration tests use `unittest.TestCase`, discovered and run by pytest. The fixture client is `bmemcached.Client` against `/tmp/memcached.sock`; existing tests cover basic set/get/delete behavior and value checks.
++- `test/conftest.py`: session-autouse fixtures launch required memcached daemons on TCP ports 11211 and 5000 and a Unix socket at `/tmp/memcached.sock`; optional fixtures cover IPv6 and SASL.
++- `test/test_distributed_client_hashing.py`: client routing/hash selection tests and mocked dispatch tests. Useful precedent for confirming forwarding to selected/all servers.
++- `docs/intro.rst` (also the `README.rst` symlink): user-facing usage examples. `docs/bmemcached.client.rst` and `docs/bmemcached.rst` use Sphinx autodoc, so public method docstrings are included in generated API docs. `docs/index.rst` builds the Sphinx tree.
++- `CHANGELOG.md`: hand-organized historical release notes. `AGENTS.md` notes that Commitizen builds the changelog from commits, so check the project’s release convention before adding a feature entry.
++
++## How the tests run
++
++Install editable package and test/lint groups as described in `CONTRIBUTING.md` (`python -m pip install -e .` and `python -m pip install --group test --group lint`). Run `pytest -s` for the suite; it requires `memcached` on `PATH` and starts real processes using fixed endpoints. In particular, the required autouse fixtures fail if endpoints are occupied or the executable is missing. Optional IPv6/SASL tests may skip if system support is unavailable. `tox` runs pytest plus `ruff check .` and `ruff format --check .` across Python 3.10–3.14; docs build with `cd docs && make html`.
++
++## Constraints and risks
++
++- Preserve protocol framing: Touch uses opcode `0x1c` and a 4-byte network-order expiration extra, with key bytes in the body. It must not read or rewrite the value; validate by checking the stored value remains unchanged as well as return behavior.
++- Distinguish Touch’s requested semantics (true only on success/existing key, false for missing key) from `delete`, which deliberately treats a missing key as success. Handle server-disconnected status consistently with other single-command protocol methods.
++- Keep the existing key conversion (`str_to_bytes`) and route/replication behavior aligned with `delete`. ReplicatingClient’s `any` aggregation means a replicated touch can return true when at least one server succeeded; a DistributedClient contacts only the hash-selected server.
++- Expiration has existing conventions but no shared helper: set/add/replace and increment/decrement map negative times to `MAXIMUM_EXPIRE_TIME`, whereas `flush_all` packs time directly. Confirm the desired time range/convention for Touch and keep unsigned 32-bit packing valid.
++- Integration tests need isolated keys and should avoid fragile sleep-based expiration assertions. Adding protocol-level framing tests may help catch an incorrect extra length/opcode in addition to real-server coverage.
++- `Client` is an alias, not a separate implementation; avoid redundant API logic while still exercising it through the public import.
++
++## Open questions
++
++- Should `touch` require `time` explicitly, as the requested signature suggests, or default it consistently with public `set`/`delete` APIs?
++- Should Touch use the existing negative-expiration convention, and should any validation be added for values outside the unsigned 32-bit protocol range?
++- Is a CHANGELOG entry expected for this change despite the documented Commitizen-generated changelog workflow?
+diff --git a/docs/features/memcached-touch/review.md b/docs/features/memcached-touch/review.md
+new file mode 100644
+index 0000000..e296abd
+--- /dev/null
++++ b/docs/features/memcached-touch/review.md
+@@ -0,0 +1,3 @@
++# Review: memcached `touch`
++
++No findings. The protocol request, result handling, public-client routing, tests, and user documentation meet the stated requirements. Targeted validation passed: `15 passed` (plus 7 passing subtests).
+diff --git a/docs/features/memcached-touch/test-report.md b/docs/features/memcached-touch/test-report.md
+new file mode 100644
+index 0000000..53c47bb
+--- /dev/null
++++ b/docs/features/memcached-touch/test-report.md
+@@ -0,0 +1,21 @@
++# Test report: memcached `touch`
++
++## Commands and results
++
++- `pytest -s` — **passed**: 289 passed, 3 skipped (Python 3.13.16). The skips are SASL integration tests; `saslpasswd2` is not on `PATH`, so the fixture cannot create a SASL user database.
++- `ruff check .` — **passed**.
++- `ruff format --check .` — **passed** (34 files already formatted).
++- `pytest -q -rs test/test_sasl_integration.py` — 3 skipped for the missing `saslpasswd2` executable, as above.
++- `cd docs && make html` — **passed** with Sphinx 9.1.0. Confirmed the generated API pages include `touch` for `Protocol`, `ReplicatingClient`, and `DistributedClient`.
++
++## Tests added by tester
++
++- Added a public API test confirming `Client` remains an alias of `ReplicatingClient`, all three public client classes expose `touch(self, key, time)`, `time` is required, and their method docstrings describe seconds and the boolean result.
++
++## Requirement coverage reviewed
++
++The test suite includes protocol checks for opcode, network-order four-byte expiration, key bytes, negative expiration, and response statuses; real-memcached checks for existing/missing keys and preserved values; and client-level checks for distributed routing and replicating aggregation/forwarding. User documentation is present in `docs/intro.rst`, and the public method docstrings are included via the existing Sphinx autodoc module paths. The PRD specifies generated release notes, so no manual changelog entry is required.
++
++## Failures / limitations
++
++- No test-suite, lint, or documentation-build failures. The three SASL tests are skipped because `saslpasswd2` is unavailable.
+diff --git a/docs/intro.rst b/docs/intro.rst
+index 09781eb..a92305f 100644
+--- a/docs/intro.rst
++++ b/docs/intro.rst
+@@ -26,6 +26,13 @@ Using
+     client.set('key', 'value')
+     print(client.get('key'))
+ 
++To change the expiration of an existing key without fetching or changing its
++value, call ``touch(key, time)``. ``time`` is the new expiration in seconds.
++It returns ``True`` if the key exists and ``False`` otherwise:
++
++.. code-block:: python
++
++    client.touch('key', 3600)
+ 
+ Using it with distributed keys
+ 
+diff --git a/test/test_distributed_client_hashing.py b/test/test_distributed_client_hashing.py
+index 106318f..b60c745 100644
+--- a/test/test_distributed_client_hashing.py
++++ b/test/test_distributed_client_hashing.py
+@@ -96,6 +96,29 @@ class DistributedClientHashingTest(unittest.TestCase):
+         ports = {client._get_server(f"key_{index}").port for index in range(500)}
+         self.assertEqual({11211, 11212, 11213}, ports)
+ 
++    def test_touch_routes_to_selected_server(self):
++        client = bmemcached.DistributedClient(THREE_SERVERS)
++        key = "touch-key"
++        selected = client._get_server(key)
++
++        with mock.patch.object(bmemcached.protocol.Protocol, "touch", autospec=True, return_value=True) as touch:
++            self.assertTrue(client.touch(key, 75))
++
++        touch.assert_called_once_with(selected, key, 75)
++
++    def test_replicating_touch_calls_every_server_and_aggregates_results(self):
++        client = bmemcached.ReplicatingClient(THREE_SERVERS)
++
++        with mock.patch.object(
++            bmemcached.protocol.Protocol, "touch", autospec=True, side_effect=[False, True, False]
++        ) as touch:
++            self.assertTrue(client.touch("touch-key", 90))
++
++        self.assertEqual(
++            [(server, "touch-key", 90) for server in client._servers],
++            [call.args for call in touch.call_args_list],
++        )
++
+     def test_delete_multi_calls_every_server_after_a_failure(self):
+         client = bmemcached.DistributedClient(["localhost:11211", "localhost:11212"])
+         keys = [f"key{i}" for i in range(20)]
+diff --git a/test/test_simple_functions.py b/test/test_simple_functions.py
+index 7e94330..fa59c48 100644
+--- a/test/test_simple_functions.py
++++ b/test/test_simple_functions.py
+@@ -61,6 +61,13 @@ class MemcachedTests(unittest.TestCase):
+         self.client.set("test_key", "test")
+         self.assertEqual("test", self.client.get("test_key"))
+ 
++    def testTouch(self):
++        self.assertFalse(self.client.touch("fresh_key", 60))
++        self.assertTrue(self.client.set("test_key", "unchanged"))
++
++        self.assertTrue(self.client.touch("test_key", 60))
++        self.assertEqual("unchanged", self.client.get("test_key"))
++
+     def testGetDefault(self):
+         self.assertEqual(None, self.client.get("test_key"))
+         self.assertEqual("default_value", self.client.get("test_key", "default_value"))
+diff --git a/test/test_touch.py b/test/test_touch.py
+new file mode 100644
+index 0000000..be8709b
+--- /dev/null
++++ b/test/test_touch.py
+@@ -0,0 +1,67 @@
++import inspect
++import struct
++import unittest
++from unittest import mock
++
++import bmemcached
++from bmemcached.exceptions import MemcachedException
++from bmemcached.protocol import Protocol
++
++
++class ProtocolTouchTests(unittest.TestCase):
++    def test_public_clients_expose_touch_with_required_time(self):
++        self.assertIs(bmemcached.Client, bmemcached.ReplicatingClient)
++
++        for client_class in (bmemcached.Client, bmemcached.ReplicatingClient, bmemcached.DistributedClient):
++            with self.subTest(client_class=client_class.__name__):
++                parameters = inspect.signature(client_class.touch).parameters
++                self.assertEqual(("self", "key", "time"), tuple(parameters))
++                self.assertEqual(inspect.Parameter.empty, parameters["time"].default)
++                self.assertIn("seconds", client_class.touch.__doc__)
++                self.assertIn("True", client_class.touch.__doc__)
++                self.assertIn("False", client_class.touch.__doc__)
++
++    def setUp(self):
++        self.protocol = Protocol("localhost:11211")
++        self.response = (0x81, 0x1C, 0, 0, 0, Protocol.STATUS["success"], 0, 0, 0, None)
++
++    def test_touch_sends_binary_command_and_returns_success(self):
++        with (
++            mock.patch.object(self.protocol, "_send") as send,
++            mock.patch.object(self.protocol, "_get_response", return_value=self.response),
++        ):
++            self.assertTrue(self.protocol.touch("k\u00e9", 123))
++
++        request = send.call_args.args[0]
++        header = struct.unpack(Protocol.HEADER_STRUCT, request[: Protocol.HEADER_SIZE])
++        self.assertEqual(Protocol.MAGIC["request"], header[0])
++        self.assertEqual(0x1C, header[1])
++        self.assertEqual(3, header[2])
++        self.assertEqual(4, header[3])
++        self.assertEqual(7, header[6])
++        self.assertEqual(123, struct.unpack("!I", request[24:28])[0])
++        self.assertEqual("k\u00e9".encode(), request[28:])
++
++    def test_touch_uses_maximum_expiration_for_negative_time(self):
++        with (
++            mock.patch.object(self.protocol, "_send") as send,
++            mock.patch.object(self.protocol, "_get_response", return_value=self.response),
++        ):
++            self.assertTrue(self.protocol.touch("key", -1))
++
++        request = send.call_args.args[0]
++        self.assertEqual(Protocol.MAXIMUM_EXPIRE_TIME, struct.unpack("!I", request[24:28])[0])
++
++    def test_touch_not_found_or_disconnected_returns_false(self):
++        for status in (Protocol.STATUS["key_not_found"], Protocol.STATUS["server_disconnected"]):
++            response = (*self.response[:5], status, *self.response[6:])
++            with self.subTest(status=status), mock.patch.object(self.protocol, "_get_response", return_value=response):
++                self.assertFalse(self.protocol.touch("missing", 10))
++
++    def test_touch_unexpected_status_raises(self):
++        response = (*self.response[:5], Protocol.STATUS["key_exists"], *self.response[6:])
++        with (
++            mock.patch.object(self.protocol, "_get_response", return_value=response),
++            self.assertRaises(MemcachedException),
++        ):
++            self.protocol.touch("key", 10)

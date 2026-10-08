@@ -1,0 +1,115 @@
+{{- $component := dict "Release" .Release "component" "celld" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "spike.celldName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "spike.selectorLabels" $component | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# One celld node with a fixed node id. A StatefulSet never runs two pods with that id, and a new pod with the same
+# id takes each cell back at once, without a wait for the lease of the old pod.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "spike.celldName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spike.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "spike.celldName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "spike.selectorLabels" $component | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "spike.selectorLabels" $component | nindent 8 }}
+      annotations:
+        checksum/gateway: {{ (.Files.Glob "src/gateway/*.ts").AsConfig | sha256sum }}
+        checksum/secret: {{ printf "%s%s%s" .Values.secrets.s3AccessKeyId .Values.secrets.s3SecretAccessKey .Values.secrets.llmApiKey | sha256sum }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.celld.terminationGracePeriodSeconds }}
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          {{- toYaml .Values.nodeAffinity | nindent 10 }}
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        {{- include "spike.gatewayContainer" (dict "root" . "proxies" true) | nindent 8 }}
+      containers:
+        - name: celld
+          image: {{ .Values.images.celld }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args:
+            - --bucket
+            - {{ include "spike.bucketUrl" . | quote }}
+            # celld sends quoted ETags, which the object store of this spike rejects. The shim of the sidecar removes the quotes.
+            - --endpoint
+            - {{ printf "http://%s" (include "spike.s3ShimListen" .) | quote }}
+            - --region
+            - {{ .Values.bucket.region | quote }}
+            - --listen
+            - 0.0.0.0:8080
+            # The internal listener has an operator API without authentication, so it stays on loopback.
+            - --internal-listen
+            - 127.0.0.1:8081
+          env:
+            # The shim signs each request with the real key pair, so celld gets placeholders.
+            - name: AWS_ACCESS_KEY_ID
+              value: shim
+            - name: AWS_SECRET_ACCESS_KEY
+              value: shim
+            - name: CELLD_NODE
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: CELLD_WATCH
+              value: /var/lib/celld/state
+            {{- range $name, $value := .Values.celld.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          # 503 until the node has its lease and a worker deployment exists in the bucket.
+          readinessProbe:
+            httpGet: { path: /.well-known/celld/health, port: http }
+            periodSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.celld.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/celld
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "spike.gatewayVolume" . | nindent 8 }}
+        - name: state
+          emptyDir:
+            sizeLimit: {{ .Values.celld.stateSizeLimit }}
+        - name: tmp
+          emptyDir: {}
