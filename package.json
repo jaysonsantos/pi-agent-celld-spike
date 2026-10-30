@@ -22,7 +22,7 @@
     "esbuild": "0.28.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.4",
     "@types/node": "26.6.4",
     "typescript": "7.0.2"
   }
