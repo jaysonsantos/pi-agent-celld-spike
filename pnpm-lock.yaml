@@ -167,14 +167,14 @@ importers:
   .:
     dependencies:
       '@earendil-works/chord':
-        specifier: 1.0.4
-        version: 1.0.4
+        specifier: 1.6.0
+        version: 1.6.0(esbuild@0.28.2)(ws@8.22.0)
       '@earendil-works/pi-ai':
         specifier: 1.0.4
         version: 1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
       '@earendil-works/pi-durable':
         specifier: 1.0.4
-        version: 1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+        version: 1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(esbuild@0.28.2)(ws@8.22.0)
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
@@ -341,9 +341,20 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@earendil-works/chord@1.0.4':
-    resolution: {integrity: sha512-d2JZw2utoa/reoSmL07O71wsXiMDhIlnnxTb4LCNV+Oq8Evj2rGLvjVuYrlXZGbXUr0IDNfvd1RT/utCY1UhkQ==}
+  '@earendil-works/chord@1.6.0':
+    resolution: {integrity: sha512-8dQXEKUR6qQPc4zNEblmv6hEfr2JAAU+nUprt+mhtdfRRZzl1At5ZhnJqTqesElAdR7RpAyaRIAilyteNHzyWA==}
     engines: {node: '>=22.19.0'}
+    peerDependencies:
+      esbuild: ^0.28.2
+      react: ^19.3.0
+      ws: ^8.21.0
+    peerDependenciesMeta:
+      esbuild:
+        optional: true
+      react:
+        optional: true
+      ws:
+        optional: true
 
   '@earendil-works/pi-ai@1.0.4':
     resolution: {integrity: sha512-/Eu5R0gfor6wcmRcVyOmulUiZmsHJ0bKu5wXXnpCoSHF3y4FnW4fgnjRlLjNza8NJWXdvW5Uew90Zukx7Sh2rw==}
@@ -354,8 +365,16 @@ packages:
     resolution: {integrity: sha512-i22unyhavxrTF/KS/JcBOKprQRgepufOIztnqBKZXJCWbEHsXDzcINtjmmBSbFB/3S+4FWIl3eJ5FMbRe33Ybg==}
     engines: {node: '>=22.19.0'}
 
+  '@earendil-works/pi-schema@1.6.0':
+    resolution: {integrity: sha512-jD0VRCUcFzWQ5zN82pOuoHNN42/3pu4E5krtpiKknvPq4g2m+fuO38lj+xnZhuVpYcd2G0qlmr8lE6ZMzkad7Q==}
+    engines: {node: '>=22.19.0'}
+
   '@earendil-works/pi-telemetry@1.0.4':
     resolution: {integrity: sha512-DL2eXXtnL5/VQkuQd97fL57GXTG1/zKHtMmDsrv8tGeJ5EgYYTWvzy44dqbYL0lD0Z22v/NOwqU3PHO75HVrqA==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-telemetry@1.6.0':
+    resolution: {integrity: sha512-MNL0TvtpgoSfX7mBLSVgzxTW6yvT8VLEpHvbWnZsIp92FtqVvx+4q9DxWZdX8KvcQqBs0GseAgVnLdVFinjN9Q==}
     engines: {node: '>=22.19.0'}
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -1131,9 +1150,13 @@ snapshots:
   '@biomejs/cli-win32-x64@2.5.15':
     optional: true
 
-  '@earendil-works/chord@1.0.4':
+  '@earendil-works/chord@1.6.0(esbuild@0.28.2)(ws@8.22.0)':
     dependencies:
+      '@earendil-works/pi-schema': 1.6.0
+      '@earendil-works/pi-telemetry': 1.6.0
+    optionalDependencies:
       esbuild: 0.28.2
+      ws: 8.22.0
 
   '@earendil-works/pi-ai@1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)':
     dependencies:
@@ -1160,9 +1183,9 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-durable@1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)':
+  '@earendil-works/pi-durable@1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(esbuild@0.28.2)(ws@8.22.0)':
     dependencies:
-      '@earendil-works/chord': 1.0.4
+      '@earendil-works/chord': 1.6.0(esbuild@0.28.2)(ws@8.22.0)
       '@earendil-works/pi-ai': 1.0.4(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
       diff: 8.0.4
       typebox: 1.3.27
@@ -1172,14 +1195,20 @@ snapshots:
       - '@smithy/hash-node'
       - '@smithy/signature-v4'
       - bufferutil
+      - esbuild
       - kerberos
+      - react
       - supports-color
       - undici
       - utf-8-validate
       - ws
       - zod
 
+  '@earendil-works/pi-schema@1.6.0': {}
+
   '@earendil-works/pi-telemetry@1.0.4': {}
+
+  '@earendil-works/pi-telemetry@1.6.0': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
